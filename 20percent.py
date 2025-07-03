@@ -32,7 +32,7 @@ KEYWORD_JSON_PATH = "results/keyword_results/"
 SENTIMENT_JSON_PATH = "results/sentiment_results/"
 
 
-def map_sentiment_udf(text: Union[str, None]) -> Tuple[float, str]:
+def map_sentiment_udf(text: Union[str, None]):
     """Perform sentiment analysis on a given text using TextBlob."""
     if not isinstance(text, str) or not text.strip():
         logger.warning(f"Invalid text input: {text}")
@@ -57,7 +57,7 @@ sentiment_udf = udf(
 )
 
 
-def upload_to_s3(local_path: str, s3_key: str, max_retries: int = 3) -> None:
+def upload_to_s3(local_path: str, s3_key: str, max_retries: int = 3):
     """Upload a file to S3 with exponential backoff retries."""
     s3_client = boto3.client('s3')
     for attempt in range(max_retries):
@@ -70,10 +70,10 @@ def upload_to_s3(local_path: str, s3_key: str, max_retries: int = 3) -> None:
             if attempt == max_retries - 1:
                 logger.error(f"Failed to upload to s3://{BUCKET_NAME}/{s3_key} after {max_retries} attempts")
                 raise
-            time.sleep(2 ** attempt)  # Exponential backoff
+            time.sleep(2 ** attempt)
 
 
-def plot_top_words(top_words_df: pd.DataFrame, fraction: float) -> None:
+def plot_top_words(top_words_df: pd.DataFrame, fraction: float):
     """Generate and save a bar chart of the top 10 words with their frequencies."""
     colors = ['#1f77b4', '#2ca02c', '#d62728', '#9467bd', '#8c564b',
               '#e377c2', '#7f7f7f', '#bcbd22', '#17becf', '#ff7f0e']
@@ -112,46 +112,39 @@ def plot_top_words(top_words_df: pd.DataFrame, fraction: float) -> None:
     upload_to_s3(path, f"{KEYWORD_PLOT_PATH}top_words_fraction_{fraction:.2f}.png")
 
 
-def plot_sentiment_categories(category_counts: List[Tuple[str, int]], fraction: float) -> None:
-    """Generate and save a bar chart of sentiment category counts."""
+def plot_sentiment_categories(category_counts: List[Tuple[str, int]], fraction: float):
+    """Generate and save a pie chart of sentiment category counts."""
     df = pd.DataFrame(category_counts, columns=['category', 'count'])
     colors = ['#1f77b4', '#2ca02c', '#d62728']  # Colors for positive, neutral, negative
-    fig = go.Figure([go.Bar(
-        x=df['category'],
-        y=df['count'],
-        text=df['count'],
-        textposition='auto',
-        marker_color=colors[:len(df)],
-        marker_line_color='black',
-        marker_line_width=1.5,
+    fig = go.Figure([go.Pie(
+        labels=df['category'],
+        values=df['count'],
+        textinfo='label+percent',
+        textposition='inside',
+        marker=dict(colors=colors[:len(df)], line=dict(color='black', width=1.5)),
         opacity=0.85
     )])
-    # Set dynamic title based on fraction
     title = "Sentiment Analysis for 20% of the Dataset" if fraction == 0.2 else f"Sentiment Analysis for {int(fraction*100)}% of the Dataset"
     if fraction == 1.0:
         title = "Sentiment Analysis for the Whole Dataset"
     fig.update_layout(
         title=title,
-        xaxis_title="Category",
-        yaxis_title="Count",
         title_x=0.5,
         height=600,
         width=800,
         font=dict(family="Arial, sans-serif", size=16, color="black"),
         plot_bgcolor='rgba(240, 240, 240, 0.95)',
         paper_bgcolor='white',
-        xaxis=dict(gridcolor='lightgray', title_font=dict(size=18), tickfont=dict(size=14)),
-        yaxis=dict(gridcolor='lightgray', title_font=dict(size=18), tickfont=dict(size=14)),
-        showlegend=False,
+        showlegend=True,
+        legend=dict(title="Sentiment Categories", font=dict(size=14)),
         margin=dict(l=50, r=50, t=100, b=100)
     )
-    # Save plot to temporary file and upload to S3
     path = f"/tmp/categories_fraction_{fraction:.2f}.png"
     fig.write_image(path, format="png", scale=2)
     upload_to_s3(path, f"{SENTIMENT_PLOT_PATH}categories_fraction_{fraction:.2f}.png")
 
 
-def run_experiment(spark: SparkSession, fraction: float = 0.2) -> Dict[str, Union[float, int]]:
+def run_experiment(spark: SparkSession, fraction: float = 0.2):
     """Run sentiment analysis and keyword extraction on a fraction of the dataset."""
     logger.info(f"Running with fraction {fraction:.2f}")
     metrics: Dict[str, Union[float, int]] = {"fraction": fraction}
@@ -238,7 +231,7 @@ def run_experiment(spark: SparkSession, fraction: float = 0.2) -> Dict[str, Unio
         raise
 
 
-def main() -> None:
+def main():
     """Initialize Spark session and run the experiment for 20% of the dataset."""
     # Configure Spark session
     spark = SparkSession.builder \
