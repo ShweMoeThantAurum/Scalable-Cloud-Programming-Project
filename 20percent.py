@@ -73,43 +73,38 @@ def upload_to_s3(local_path: str, s3_key: str, max_retries: int = 3):
             time.sleep(2 ** attempt)
 
 
-def plot_top_words(top_words_df: pd.DataFrame, fraction: float):
-    """Generate and save a bar chart of the top 10 words with their frequencies."""
-    colors = ['#1f77b4', '#2ca02c', '#d62728', '#9467bd', '#8c564b',
-              '#e377c2', '#7f7f7f', '#bcbd22', '#17becf', '#ff7f0e']
-    fig = go.Figure([go.Bar(
-        x=top_words_df['word'],
-        y=top_words_df['frequency'],
-        text=top_words_df['frequency'],
-        textposition='auto',
-        marker_color=colors[:len(top_words_df)],
-        marker_line_color='black',
-        marker_line_width=1.5,
+def plot_sentiment_categories(category_counts: List[Tuple[str, int]], fraction: float):
+    """Generate and save a pie chart of sentiment category counts."""
+    df = pd.DataFrame(category_counts, columns=['category', 'count'])
+    colors = ['#1f77b4', '#2ca02c', '#d62728']  # Colors for positive, neutral, negative
+    # Create labels with category and count (e.g., "positive (1234)")
+    labels = [f"{row['category']} ({row['count']})" for _, row in df.iterrows()]
+    fig = go.Figure([go.Pie(
+        labels=labels,
+        values=df['count'],
+        textinfo='label+percent',
+        textposition='inside',
+        marker=dict(colors=colors[:len(df)], line=dict(color='black', width=1.5)),
         opacity=0.85
     )])
-    # Set dynamic title based on fraction
-    title = "Top 10 Words for 20% of the Dataset" if fraction == 0.2 else f"Top 10 Words for {int(fraction*100)}% of the Dataset"
+    title = "Sentiment Analysis for 20% of the Dataset" if fraction == 0.2 else f"Sentiment Analysis for {int(fraction*100)}% of the Dataset"
     if fraction == 1.0:
-        title = "Top 10 Words for the Whole Dataset"
+        title = "Sentiment Analysis for the Whole Dataset"
     fig.update_layout(
         title=title,
-        xaxis_title="Word",
-        yaxis_title="Frequency",
         title_x=0.5,
         height=600,
         width=800,
         font=dict(family="Arial, sans-serif", size=16, color="black"),
         plot_bgcolor='rgba(240, 240, 240, 0.95)',
         paper_bgcolor='white',
-        xaxis=dict(tickangle=45, gridcolor='lightgray', title_font=dict(size=18), tickfont=dict(size=14)),
-        yaxis=dict(gridcolor='lightgray', title_font=dict(size=18), tickfont=dict(size=14)),
-        showlegend=False,
+        showlegend=True,
+        legend=dict(title="Sentiment Categories", font=dict(size=14)),
         margin=dict(l=50, r=50, t=100, b=100)
     )
-    # Save plot to temporary file and upload to S3
-    path = f"/tmp/top_words_fraction_{fraction:.2f}.png"
+    path = f"/tmp/categories_fraction_{fraction:.2f}.png"
     fig.write_image(path, format="png", scale=2)
-    upload_to_s3(path, f"{KEYWORD_PLOT_PATH}top_words_fraction_{fraction:.2f}.png")
+    upload_to_s3(path, f"{SENTIMENT_PLOT_PATH}categories_fraction_{fraction:.2f}.png")
 
 
 def plot_sentiment_categories(category_counts: List[Tuple[str, int]], fraction: float):
