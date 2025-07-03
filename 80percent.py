@@ -116,8 +116,10 @@ def plot_sentiment_categories(category_counts: List[Tuple[str, int]], fraction: 
     """Generate and save a pie chart of sentiment category counts."""
     df = pd.DataFrame(category_counts, columns=['category', 'count'])
     colors = ['#1f77b4', '#2ca02c', '#d62728']  # Colors for positive, neutral, negative
+    # Create labels with category and count (e.g., "positive (1234)")
+    labels = [f"{row['category']} ({row['count']})" for _, row in df.iterrows()]
     fig = go.Figure([go.Pie(
-        labels=df['category'],
+        labels=labels,
         values=df['count'],
         textinfo='label+percent',
         textposition='inside',
