@@ -32,7 +32,7 @@ KEYWORD_JSON_PATH = "results/keyword_results/"
 SENTIMENT_JSON_PATH = "results/sentiment_results/"
 
 
-def map_sentiment_udf(text: Union[str, None]) -> Tuple[float, str]:
+def map_sentiment_udf(text: Union[str, None]):
     """Perform sentiment analysis on a given text using TextBlob."""
     if not isinstance(text, str) or not text.strip():
         logger.warning(f"Invalid text input: {text}")
@@ -57,7 +57,7 @@ sentiment_udf = udf(
 )
 
 
-def upload_to_s3(local_path: str, s3_key: str, max_retries: int = 3) -> None:
+def upload_to_s3(local_path: str, s3_key: str, max_retries: int = 3):
     """Upload a file to S3 with exponential backoff retries."""
     s3_client = boto3.client('s3')
     for attempt in range(max_retries):
@@ -73,7 +73,7 @@ def upload_to_s3(local_path: str, s3_key: str, max_retries: int = 3) -> None:
             time.sleep(2 ** attempt)
 
 
-def plot_top_words(top_words_df: pd.DataFrame, fraction: float) -> None:
+def plot_top_words(top_words_df: pd.DataFrame, fraction: float):
     """Generate and save a bar chart of the top 10 words with their frequencies."""
     colors = ['#1f77b4', '#2ca02c', '#d62728', '#9467bd', '#8c564b',
               '#e377c2', '#7f7f7f', '#bcbd22', '#17becf', '#ff7f0e']
@@ -144,7 +144,7 @@ def plot_sentiment_categories(category_counts: List[Tuple[str, int]], fraction: 
     upload_to_s3(path, f"{SENTIMENT_PLOT_PATH}categories_fraction_{fraction:.2f}.png")
 
 
-def run_experiment(spark: SparkSession, fraction: float = 0.6) -> Dict[str, Union[float, int]]:
+def run_experiment(spark: SparkSession, fraction: float = 0.6):
     """Run sentiment analysis and keyword extraction on a fraction of the dataset."""
     logger.info(f"Running with fraction {fraction:.2f}")
     metrics: Dict[str, Union[float, int]] = {"fraction": fraction}
@@ -231,7 +231,7 @@ def run_experiment(spark: SparkSession, fraction: float = 0.6) -> Dict[str, Unio
         raise
 
 
-def main() -> None:
+def main():
     """Initialize Spark session and run the experiment for 60% of the dataset."""
     # Configure Spark session
     spark = SparkSession.builder \
