@@ -2,6 +2,7 @@ import boto3
 import json
 import time
 import logging
+import random
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -14,25 +15,33 @@ stream_name = 'electronics-reviews-stream'
 bucket_name = 'electronic-reviews-bucket'
 input_prefix = 'processed_text_data_json/'
 
-def send_batch_to_kinesis(records):
-    """Send a batch of records to Kinesis."""
-    try:
-        response = kinesis_client.put_records(
-            StreamName=stream_name,
-            Records=[
-                {
-                    'Data': json.dumps({'cleaned_reviewText': record['cleaned_reviewText'], 'send_time': time.time()}),
-                    'PartitionKey': str(i)
-                } for i, record in enumerate(records)
-            ]
-        )
-        logger.info(f"Sent {len(records)} records to Kinesis: {response}")
-        if response['FailedRecordCount'] > 0:
-            logger.warning(f"Failed to send {response['FailedRecordCount']} records")
-        return response
-    except Exception as e:
-        logger.error(f"Error sending to Kinesis: {e}")
-        return None
+def send_batch_to_kinesis(records, max_retries=3):
+    """Send a batch of records to Kinesis with retries."""
+    for attempt in range(max_retries):
+        try:
+            response = kinesis_client.put_records(
+                StreamName=stream_name,
+                Records=[
+                    {
+                        'Data': json.dumps({
+                            'cleaned_reviewText': record['cleaned_reviewText'],
+                            'send_time': time.time()
+                        }),
+                        'PartitionKey': str(random.randint(0, 1000))
+                    } for record in records
+                ]
+            )
+            logger.info(f"Sent {len(records)} records to Kinesis: {response}")
+            if response['FailedRecordCount'] == 0:
+                return response
+            else:
+                logger.warning(f"Failed to send {response['FailedRecordCount']} records")
+                # Optionally, retry only failed records
+        except Exception as e:
+            logger.error(f"Error sending to Kinesis (attempt {attempt + 1}): {e}")
+            time.sleep(2 ** attempt)  # Exponential backoff
+    logger.error(f"Failed to send batch after {max_retries} attempts")
+    return None
 
 def main():
     try:
@@ -51,13 +60,13 @@ def main():
             obj = s3_client.get_object(Bucket=bucket_name, Key=json_key)
             json_data = obj['Body'].read().decode('utf-8').splitlines()
 
-            # Parse JSON lines and send in batches
-            batch_size = 100  # Kinesis allows up to 500 records per put_records
-            records = [json.loads(line) for line in json_data[:1000]]  # Limit to 1000 records per file
+            # Parse JSON lines
+            records = [json.loads(line) for line in json_data] 
+            batch_size = 100 
             for i in range(0, len(records), batch_size):
                 batch = records[i:i + batch_size]
                 send_batch_to_kinesis(batch)
-                time.sleep(0.1)  # 10 batches/sec (1000 records/s max for 1 shard)
+                time.sleep(0.1)
                 logger.info(f"Processed batch {i // batch_size + 1}")
 
         logger.info("Finished sending all records to Kinesis")
