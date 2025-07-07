@@ -24,14 +24,18 @@ json_prefix = 'processed_text_data_json/'
 output_prefix = 'hybrid_results/'
 
 # Constants
-CHUNK_SIZE = 100000  # Records per chunk for MapReduce
+CHUNK_SIZES = {
+    "20%": 20000,
+    "40%": 40000,
+    "60%": 60000,
+    "80%": 80000,
+    "100%": 100000
+}
 EC2_TASKS = ['sentiment_analysis', 'report_generation', 'resource_monitoring']
 
 def mapreduce_word_count(spark, bucket_name, input_prefix, chunk_size):
-    """Perform MapReduce word count on a chunk of data."""
     start_time = time.time()
     try:
-        # Read Parquet files
         df = spark.read.parquet(f"s3a://{bucket_name}/{input_prefix}part-*.parquet").limit(chunk_size)
         tokenizer = Tokenizer(inputCol="cleaned_reviewText", outputCol="words")
         df = tokenizer.transform(df)
@@ -47,10 +51,8 @@ def mapreduce_word_count(spark, bucket_name, input_prefix, chunk_size):
         raise
 
 def sentiment_analysis_task(spark, bucket_name, json_prefix):
-    """Simulate sentiment analysis task on EC2, reading all JSON files with Spark."""
     start_time = time.time()
     try:
-        # Read all JSON files using Spark
         df = spark.read.json(f"s3a://{bucket_name}/{json_prefix}part-*.json").limit(1000)
         pandas_df = df.select("cleaned_reviewText").toPandas()
         sentiment_counts = {'positive': 0, 'negative': 0, 'neutral': 0}
@@ -61,28 +63,26 @@ def sentiment_analysis_task(spark, bucket_name, json_prefix):
             category = 'positive' if polarity > 0.05 else 'negative' if polarity < -0.05 else 'neutral'
             sentiment_counts[category] += 1
         execution_time = time.time() - start_time
-        logger.info(f"Sentiment analysis task completed in {execution_time:.2f} seconds")
+        logger.info(f"Sentiment analysis completed in {execution_time:.2f} seconds")
         return sentiment_counts, execution_time
     except Exception as e:
-        logger.error(f"Sentiment analysis task error: {e}")
+        logger.error(f"Sentiment analysis error: {e}")
         raise
 
 def report_generation_task():
-    """Simulate report generation task on EC2."""
     start_time = time.time()
     try:
         report = {"summary": "Top words and sentiment analysis completed", "timestamp": time.time()}
         output_key = f"{output_prefix}report_{int(time.time())}.json"
         s3_client.put_object(Bucket=bucket_name, Key=output_key, Body=json.dumps(report))
         execution_time = time.time() - start_time
-        logger.info(f"Report generation task completed in {execution_time:.2f} seconds")
+        logger.info(f"Report generation completed in {execution_time:.2f} seconds")
         return report, execution_time
     except Exception as e:
-        logger.error(f"Report generation task error: {e}")
+        logger.error(f"Report generation error: {e}")
         raise
 
 def resource_monitoring_task():
-    """Monitor CPU and memory usage."""
     start_time = time.time()
     try:
         cpu_usage = psutil.cpu_percent(interval=1)
@@ -91,14 +91,13 @@ def resource_monitoring_task():
         output_key = f"{output_prefix}metrics_{int(time.time())}.json"
         s3_client.put_object(Bucket=bucket_name, Key=output_key, Body=json.dumps(metrics))
         execution_time = time.time() - start_time
-        logger.info(f"Resource monitoring task completed in {execution_time:.2f} seconds")
+        logger.info(f"Resource monitoring completed in {execution_time:.2f} seconds")
         return metrics, execution_time
     except Exception as e:
-        logger.error(f"Resource monitoring task error: {e}")
+        logger.error(f"Resource monitoring error: {e}")
         raise
 
 def sequential_execution(spark, bucket_name, input_prefix, chunk_size):
-    """Run tasks sequentially."""
     start_time = time.time()
     total_cpu = psutil.cpu_percent(interval=1)
     total_memory = psutil.virtual_memory().percent
@@ -138,7 +137,6 @@ def sequential_execution(spark, bucket_name, input_prefix, chunk_size):
     }
 
 def parallel_execution(spark, bucket_name, input_prefix, chunk_size):
-    """Run tasks in parallel using ThreadPoolExecutor."""
     start_time = time.time()
     results = {}
     with ThreadPoolExecutor(max_workers=len(EC2_TASKS) + 1) as executor:
@@ -169,13 +167,10 @@ def parallel_execution(spark, bucket_name, input_prefix, chunk_size):
         "memory_usage_percent": total_memory
     }
 
-def plot_benchmarks(sequential_metrics, parallel_metrics):
-    """Generate comparison plot for sequential vs parallel execution with times in seconds."""
+def plot_benchmarks(sequential_metrics, parallel_metrics, title_suffix, percent_label):
     tasks = ['mapreduce', 'sentiment', 'report', 'metrics']
     sequential_times = [sequential_metrics['times'][task] for task in tasks]
     parallel_times = [parallel_metrics['times'][task] for task in tasks]
-
-    # Format all times in seconds with 3 decimal places
     sequential_labels = [f"{t:.3f} s" for t in sequential_times]
     parallel_labels = [f"{t:.3f} s" for t in parallel_times]
 
@@ -186,7 +181,7 @@ def plot_benchmarks(sequential_metrics, parallel_metrics):
                text=parallel_labels, textposition='auto')
     ])
     fig.update_layout(
-        title='Sequential vs Parallel Execution Times',
+        title=f"Sequential vs Parallel Execution Times of {percent_label} of the Dataset",
         xaxis_title='Task Names',
         yaxis_title='Execution Time (s)',
         barmode='group',
@@ -198,13 +193,12 @@ def plot_benchmarks(sequential_metrics, parallel_metrics):
         legend_title='Execution Mode',
         xaxis=dict(tickangle=0, tickfont=dict(size=12))
     )
-    path = f"/tmp/benchmarks.png"
+    path = f"/tmp/benchmarks_{title_suffix}.png"
     fig.write_image(path, format="png", scale=2)
-    s3_client.upload_file(path, bucket_name, f"{output_prefix}benchmarks.png")
-    logger.info(f"Saved benchmark plot to s3://{bucket_name}/{output_prefix}benchmarks.png")
+    s3_client.upload_file(path, bucket_name, f"{output_prefix}benchmarks_{title_suffix}.png")
+    logger.info(f"Saved benchmark plot to s3://{bucket_name}/{output_prefix}benchmarks_{title_suffix}.png")
 
 def main():
-    """Run hybrid parallelism and benchmark sequential vs parallel execution."""
     credentials = boto3.Session().get_credentials()
     access_key = credentials.access_key
     secret_key = credentials.secret_key
@@ -220,25 +214,28 @@ def main():
         .getOrCreate()
 
     try:
-        logger.info("Starting sequential execution")
-        sequential_metrics = sequential_execution(spark, bucket_name, input_prefix, CHUNK_SIZE)
+        for percent_label, chunk_size in CHUNK_SIZES.items():
+            logger.info(f"--- Benchmarking with {percent_label} of the dataset ({chunk_size} records) ---")
 
-        logger.info("Starting parallel execution")
-        parallel_metrics = parallel_execution(spark, bucket_name, input_prefix, CHUNK_SIZE)
+            logger.info("Starting sequential execution")
+            sequential_metrics = sequential_execution(spark, bucket_name, input_prefix, chunk_size)
 
-        speedup = sequential_metrics['total_time'] / parallel_metrics['total_time'] if parallel_metrics['total_time'] > 0 else 1
-        logger.info(f"Speedup factor: {speedup:.2f}x")
+            logger.info("Starting parallel execution")
+            parallel_metrics = parallel_execution(spark, bucket_name, input_prefix, chunk_size)
 
-        metrics = {
-            "sequential": sequential_metrics,
-            "parallel": parallel_metrics,
-            "speedup": speedup
-        }
-        output_key = f"{output_prefix}hybrid_metrics_{int(time.time())}.json"
-        s3_client.put_object(Bucket=bucket_name, Key=output_key, Body=json.dumps(metrics))
-        logger.info(f"Saved metrics to s3://{bucket_name}/{output_key}")
+            speedup = sequential_metrics['total_time'] / parallel_metrics['total_time'] if parallel_metrics['total_time'] > 0 else 1
+            logger.info(f"Speedup factor for {percent_label}: {speedup:.2f}x")
 
-        plot_benchmarks(sequential_metrics, parallel_metrics)
+            metrics = {
+                "sequential": sequential_metrics,
+                "parallel": parallel_metrics,
+                "speedup": speedup
+            }
+            output_key = f"{output_prefix}hybrid_metrics_{percent_label.replace('%','')}_{int(time.time())}.json"
+            s3_client.put_object(Bucket=bucket_name, Key=output_key, Body=json.dumps(metrics))
+            logger.info(f"Saved metrics to s3://{bucket_name}/{output_key}")
+
+            plot_benchmarks(sequential_metrics, parallel_metrics, title_suffix=percent_label.replace("%", ""), percent_label=percent_label)
 
     except Exception as e:
         logger.error(f"Error in hybrid parallelism: {e}")
